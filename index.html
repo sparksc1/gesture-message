@@ -424,7 +424,7 @@ async function initHandLandmarker() {
     handLandmarker = await HandLandmarker.createFromOptions(vision, {
       baseOptions: {
         modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
-        delegate: 'GPU'
+        delegate: 'CPU'
       },
       runningMode: 'VIDEO',
       numHands: 1
@@ -491,8 +491,7 @@ function detectLoop() {
   fxCtx.clearRect(0, 0, fxCanvas.width, fxCanvas.height);
 
   const now = performance.now();
-  if (video.currentTime !== lastVideoTime) {
-    lastVideoTime = video.currentTime;
+  try {
     const result = handLandmarker.detectForVideo(video, now);
 
     let detected = null;
@@ -509,10 +508,10 @@ function detectLoop() {
     }
     updateDebugLine(rawInfo);
 
-    // 등록된(문구 있는) 제스처만 인정
     if (detected && !messages[detected]) detected = null;
-
     handleDetection(detected, now);
+  } catch (e) {
+    updateDebugLine('detectForVideo 에러: ' + e.message);
   }
 
   requestAnimationFrame(detectLoop);
