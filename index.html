@@ -294,7 +294,9 @@ window.FilesetResolver = FilesetResolver;
   </div>
 
   <div class="detect-pill" id="detectPill"><span class="dot"></span>손짓을 찾고 있어요</div>
-  <div id="debugPanel" style="position:absolute;top:115px;left:10px;right:10px;background:rgba(0,0,0,0.8);color:#0f0;font-size:11px;padding:8px;border-radius:8px;z-index:50;max-height:200px;overflow:auto;font-family:monospace;white-space:pre-wrap;"></div>
+  <button id="snapBtn" style="position:absolute;top:115px;right:10px;z-index:51;background:#7d5fff;color:#fff;border:none;border-radius:8px;padding:6px 10px;font-size:11px;">📸 캡처</button>
+  <div id="debugPanel" style="position:absolute;top:115px;left:10px;right:80px;background:rgba(0,0,0,0.8);color:#0f0;font-size:11px;padding:8px;border-radius:8px;z-index:50;max-height:160px;overflow:auto;font-family:monospace;white-space:pre-wrap;"></div>
+  <canvas id="snapCanvas" style="display:none;position:absolute;top:280px;left:10px;right:10px;z-index:52;border:2px solid #7d5fff;border-radius:8px;max-height:300px;"></canvas>
 
   <div class="gesture-tray" id="gestureTray"></div>
 </div>
@@ -645,6 +647,21 @@ function spawnParticles(g) {
     }, i * 40);
   }
 }
+
+// ── 디버그 캡처 버튼 ──
+document.getElementById('snapBtn').addEventListener('click', () => {
+  const snapCanvas = document.getElementById('snapCanvas');
+  snapCanvas.width = video.videoWidth;
+  snapCanvas.height = video.videoHeight;
+  const sctx = snapCanvas.getContext('2d');
+  sctx.save();
+  sctx.translate(snapCanvas.width, 0);
+  sctx.scale(-1, 1);
+  sctx.drawImage(video, 0, 0, snapCanvas.width, snapCanvas.height);
+  sctx.restore();
+  snapCanvas.style.display = 'block';
+  dbg(`캡처: video ${video.videoWidth}x${video.videoHeight}, readyState=${video.readyState}`);
+});
 
 // ── 뒤로가기 ──
 document.getElementById('backBtn').addEventListener('click', () => {
