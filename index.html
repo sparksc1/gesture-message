@@ -146,8 +146,9 @@
   #video {
     position: absolute;
     width: 100%; height: 100%;
-    object-fit: cover;
+    object-fit: contain;
     transform: scaleX(-1);
+    background: #000;
   }
   #fxCanvas {
     position: absolute;
@@ -353,7 +354,7 @@ document.getElementById('startBtn').addEventListener('click', async () => {
 
   try {
     stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'user', width: { ideal: 720 }, height: { ideal: 1280 } },
+      video: { facingMode: 'user' },
       audio: false
     });
     video.srcObject = stream;
@@ -406,27 +407,28 @@ function dist(a, b) {
 }
 
 function fingerExtended(lm, tipIdx, pipIdx, mcpIdx) {
-  // 손끝이 mcp(손바닥쪽 관절)보다 위(카메라 기준 z 무시, 2D 거리로 근사)
   const tip = lm[tipIdx], pip = lm[pipIdx], mcp = lm[mcpIdx], wrist = lm[0];
-  return dist(tip, wrist) > dist(pip, wrist) && dist(tip, wrist) > dist(mcp, wrist) * 1.15;
+  return dist(tip, wrist) > dist(pip, wrist) && dist(tip, wrist) > dist(mcp, wrist) * 1.05;
 }
 
 function classifyGesture(lm) {
-  const thumbTip = lm[4], indexTip = lm[8], middleTip = lm[12], ringTip = lm[16], pinkyTip = lm[20];
+  const thumbTip = lm[4], indexTip = lm[8];
 
   const indexExt = fingerExtended(lm, 8, 6, 5);
   const middleExt = fingerExtended(lm, 12, 10, 9);
   const ringExt = fingerExtended(lm, 16, 14, 13);
   const pinkyExt = fingerExtended(lm, 20, 18, 17);
 
-  // 손가락 하트: 엄지+검지 끝이 가깝고, 나머지 손가락은 접힘
   const thumbIndexDist = dist(thumbTip, indexTip);
-  if (thumbIndexDist < 0.06 && !middleExt && !ringExt && !pinkyExt) {
+
+  // 손가락 하트: 엄지+검지 끝이 가깝고, 중지/약지/소지는 접힘
+  if (thumbIndexDist < 0.09 && !middleExt && !ringExt && !pinkyExt) {
     return 'heart';
   }
 
-  // 오케이: 엄지+검지 닿고, 중지/약지/소지는 펴짐
-  if (thumbIndexDist < 0.07 && middleExt && ringExt && pinkyExt) {
+  // 오케이: 엄지+검지 닿고, 중지/약지/소지 중 2개 이상 펴짐
+  const extCount = [middleExt, ringExt, pinkyExt].filter(Boolean).length;
+  if (thumbIndexDist < 0.09 && extCount >= 2) {
     return 'ok';
   }
 
@@ -435,9 +437,9 @@ function classifyGesture(lm) {
     return 'victory';
   }
 
-  // 엄지척: 엄지만 펴지고 나머지 다 접힘, 엄지가 손목보다 위
+  // 엄지척: 검지/중지/약지/소지 다 접힘, 엄지가 위로 향함
   if (!indexExt && !middleExt && !ringExt && !pinkyExt) {
-    const thumbUp = thumbTip.y < lm[2].y - 0.04;
+    const thumbUp = thumbTip.y < lm[2].y - 0.02;
     if (thumbUp) return 'thumbsup';
   }
 
