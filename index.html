@@ -437,6 +437,7 @@ const GESTURES = [
 const gestureList = document.getElementById('gestureList');
 const STORAGE_KEY = 'gestureMessages_v1';
 const PRESETS_KEY = 'gesturePresets_v1';
+const ACTIVE_PRESET_KEY = 'gestureActivePreset_v1';
 let messages = {}; // id -> text (새로 작성인 것)
 let presets = {};  // presetName -> {id: text, ...}
 
@@ -476,6 +477,14 @@ function renderPresetOptions() {
     opt.textContent = name;
     sel.appendChild(opt);
   });
+  // 마지막으로 사용중이던 프리셋을 드롭다운에 반영
+  let activeName = '';
+  try { activeName = localStorage.getItem(ACTIVE_PRESET_KEY) || ''; } catch(e) { /* ignore */ }
+  if (activeName && presets[activeName]) {
+    sel.value = activeName;
+  } else {
+    sel.value = '';
+  }
 }
 renderPresetOptions();
 
@@ -504,6 +513,10 @@ gestureList.addEventListener('input', (e) => {
   }
 });
 
+function saveActivePreset(name) {
+  try { localStorage.setItem(ACTIVE_PRESET_KEY, name || ''); } catch(e) { /* ignore */ }
+}
+
 // 프리셋 선택 → 불러오기
 document.getElementById('presetSelect').addEventListener('change', (e) => {
   const name = e.target.value;
@@ -511,12 +524,14 @@ document.getElementById('presetSelect').addEventListener('change', (e) => {
     // 새로 작성 → 모두 빈칸으로
     messages = {};
     saveMessages();
+    saveActivePreset('');
     renderGestureInputs();
     return;
   }
   if (presets[name]) {
     messages = { ...presets[name] };
     saveMessages();
+    saveActivePreset(name);
     renderGestureInputs();
   }
 });
@@ -551,6 +566,7 @@ function confirmSavePreset() {
   savePresets();
   renderPresetOptions();
   document.getElementById('presetSelect').value = name;
+  saveActivePreset(name);
   document.getElementById('presetSaveModal').classList.remove('visible');
 }
 
@@ -573,6 +589,7 @@ document.getElementById('presetDeleteBtn').addEventListener('click', () => {
   if (confirm(`"${name}" 세트를 삭제할까요?`)) {
     delete presets[name];
     savePresets();
+    saveActivePreset('');
     renderPresetOptions();
   }
 });
