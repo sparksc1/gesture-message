@@ -627,6 +627,7 @@ document.getElementById('startBtn').addEventListener('click', async () => {
 
     renderTray();
     await initHandLandmarker();
+    detectLoopActive = true;
     requestAnimationFrame(detectLoop);
   } catch (e) {
     alert('카메라 권한을 허용해주세요!');
@@ -725,7 +726,11 @@ function classifyGesture(lm) {
 }
 
 // ── 메인 디텍션 루프 ──
+let detectLoopActive = false;
+
 function detectLoop() {
+  if (!detectLoopActive) return; // 뒤로가기로 중단된 루프는 더 이상 진행 안 함
+
   if (!handLandmarker || !video.videoWidth) {
     requestAnimationFrame(detectLoop);
     return;
@@ -977,6 +982,28 @@ function wrapText(ctx, text, cx, cy, maxWidth, lineHeight) {
 // ── 뒤로가기 ──
 document.getElementById('backBtn').addEventListener('click', () => {
   if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+
+  // 다음 진입을 위해 모든 상태 초기화
+  detectLoopActive = false; // 기존 detectLoop 루프 중단
+  if (sustainParticleInterval) {
+    clearInterval(sustainParticleInterval);
+    sustainParticleInterval = null;
+  }
+  displayedGestureId = null;
+  currentDisplayedMessage = null;
+  armedGesture = null;
+  armedSince = 0;
+  lastVideoTime = -1;
+  handLandmarker = null; // 재진입시 새로 초기화되도록
+
+  // 메시지 오버레이/이펙트 즉시 숨김 (트랜지션 없이)
+  const overlay = document.getElementById('messageOverlay');
+  const veil = document.getElementById('glowVeil');
+  overlay.style.transition = 'none';
+  overlay.style.opacity = '0';
+  veil.style.transition = 'none';
+  veil.style.opacity = '0';
+
   document.getElementById('cameraScreen').style.display = 'none';
   document.getElementById('setupScreen').style.display = 'flex';
 });
