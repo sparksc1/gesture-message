@@ -698,6 +698,55 @@ document.getElementById('presetSelect').addEventListener('change', (e) => {
 // ── 음성 설정 (TTS / 녹음) ──
 let mediaRecorder = null;
 let recordedChunks = [];
+let recordingMimeType = 'audio/webm';
+
+const isIOS = /iP(hone|od|ad)/.test(navigator.userAgent) ||
+  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+function getSupportedMimeType() {
+  const candidates = [
+    'audio/mp4',
+    'audio/aac',
+    'audio/webm;codecs=opus',
+    'audio/webm',
+    'audio/ogg;codecs=opus'
+  ];
+  if (typeof MediaRecorder === 'undefined' || !MediaRecorder.isTypeSupported) {
+    return ''; // let the browser pick its own default
+  }
+  for (const type of candidates) {
+    if (MediaRecorder.isTypeSupported(type)) return type;
+  }
+  return '';
+}
+
+// ── iOS는 speechSynthesis를 "사용자 탭" 동작 안에서 한 번 호출해줘야
+//     이후 자동(제스처 트리거) 호출에서도 소리가 난다. 최초 탭에서 무음으로 1회 깨워둔다.
+let ttsUnlocked = !isIOS;
+function unlockTTSOnce() {
+  if (ttsUnlocked) return;
+  ttsUnlocked = true;
+  try {
+    const warmup = new SpeechSynthesisUtterance(' ');
+    warmup.volume = 0;
+    window.speechSynthesis.speak(warmup);
+  } catch (e) { /* noop */ }
+}
+document.addEventListener('touchend', unlockTTSOnce, { once: true, passive: true });
+document.addEventListener('click', unlockTTSOnce, { once: true });
+
+// iOS/Safari는 getVoices()가 비동기로 채워지는 경우가 많아 캐시해두고
+// voiceschanged 이벤트가 오면 갱신한다.
+let cachedKoVoices = [];
+function refreshKoVoices() {
+  if (!('speechSynthesis' in window)) return;
+  const voices = window.speechSynthesis.getVoices().filter(v => v.lang.startsWith('ko'));
+  if (voices.length) cachedKoVoices = voices;
+}
+if ('speechSynthesis' in window) {
+  refreshKoVoices();
+  window.speechSynthesis.onvoiceschanged = refreshKoVoices;
+}
 
 gestureList.addEventListener('click', async (e) => {
   const btn = e.target.closest('.voice-btn, .preview-btn, .gender-chip');
@@ -761,7 +810,10 @@ async function startRecording(id) {
   try {
     const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
     recordedChunks = [];
-    mediaRecorder = new MediaRecorder(micStream);
+    recordingMimeType = getSupportedMimeType();
+    mediaRecorder = recordingMimeType
+      ? new MediaRecorder(micStream, { mimeType: recordingMimeType })
+      : new MediaRecorder(micStream); // 브라우저 기본값에 맡김 (예: 구형 iOS)
 
     mediaRecorder.ondataavailable = (ev) => {
       if (ev.data.size > 0) recordedChunks.push(ev.data);
@@ -769,7 +821,8 @@ async function startRecording(id) {
 
     mediaRecorder.onstop = () => {
       micStream.getTracks().forEach(t => t.stop());
-      const blob = new Blob(recordedChunks, { type: 'audio/webm' });
+      const blobType = recordingMimeType || mediaRecorder.mimeType || 'audio/webm';
+      const blob = new Blob(recordedChunks, { type: blobType });
       const reader = new FileReader();
       reader.onloadend = () => {
         // 바로 저장하지 않고 미리듣기 상태로 전환
@@ -809,6 +862,7 @@ function playVoiceForGesture(id, text) {
     audio.play().catch(() => {});
   } else if (setting.mode === 'tts') {
     if ('speechSynthesis' in window) {
+      unlockTTSOnce(); // 혹시 첫 탭을 못 잡았을 경우 대비 (이미 깨어있으면 무시됨)
       window.speechSynthesis.cancel();
       const utter = new SpeechSynthesisUtterance(text);
       utter.lang = 'ko-KR';
@@ -816,7 +870,11 @@ function playVoiceForGesture(id, text) {
       utter.pitch = 1.0;
 
       // 기기/브라우저의 기본 한국어 음성을 그대로 사용 (가장 자연스러움)
-      const voices = window.speechSynthesis.getVoices().filter(v => v.lang.startsWith('ko'));
+      // iOS는 getVoices()가 늦게 채워질 수 있어 캐시된 목록을 우선 사용하고,
+      // 비어있으면 그 순간 다시 한번 조회한다.
+      const voices = cachedKoVoices.length
+        ? cachedKoVoices
+        : window.speechSynthesis.getVoices().filter(v => v.lang.startsWith('ko'));
       if (voices[0]) utter.voice = voices[0];
 
       window.speechSynthesis.speak(utter);
