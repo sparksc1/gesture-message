@@ -168,6 +168,39 @@ window.FilesetResolver = FilesetResolver;
     font-size: 0.66rem;
     color: #635a7d;
   }
+  .voice-gender-select {
+    background: #16121f;
+    border: 1px solid #2e2548;
+    color: #d8d0f0;
+    border-radius: 10px;
+    padding: 5px 8px;
+    font-size: 0.68rem;
+    font-weight: 600;
+    font-family: inherit;
+  }
+  .preview-bar {
+    display: none;
+    align-items: center;
+    gap: 6px;
+    padding-left: 50px;
+    margin-top: 2px;
+  }
+  .preview-bar.visible { display: flex; }
+  .preview-btn {
+    background: #1e3a2e;
+    border: 1px solid #2e5c45;
+    color: #8ce0b0;
+    border-radius: 10px;
+    padding: 5px 10px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .preview-btn.retry {
+    background: #3a2d1e;
+    border-color: #5c4a2e;
+    color: #e0c08c;
+  }
 
   .gesture-emoji {
     width: 38px; height: 38px;
@@ -460,6 +493,7 @@ const PRESETS_KEY = 'gesturePresets_v1';
 const ACTIVE_PRESET_KEY = 'gestureActivePreset_v1';
 let messages = {}; // id -> text (새로 작성인 것)
 let voiceSettings = {}; // id -> { mode: 'none'|'tts'|'record', audioData: base64string|null }
+let pendingPreview = null; // { id, audioData } 저장 전 임시 녹음
 const VOICE_KEY = 'gestureVoiceSettings_v1';
 
 function loadVoiceSettings() {
@@ -532,8 +566,11 @@ function renderGestureInputs() {
     const row = document.createElement('div');
     row.className = 'gesture-row';
     const savedVal = messages[g.id] || '';
-    const voiceMode = voiceSettings[g.id]?.mode || 'none'; // 'none' | 'tts' | 'record'
-    const hasRecording = !!voiceSettings[g.id]?.audioData;
+    const vs = voiceSettings[g.id] || {};
+    const voiceMode = vs.mode || 'none'; // 'none' | 'tts' | 'record'
+    const hasRecording = !!vs.audioData;
+    const gender = vs.gender || 'female';
+    const isPendingPreview = pendingPreview && pendingPreview.id === g.id;
     row.innerHTML = `
       <div class="gesture-row-main">
         <div class="gesture-emoji">${g.emoji}</div>
@@ -544,9 +581,19 @@ function renderGestureInputs() {
       </div>
       <div class="voice-bar">
         <button class="voice-btn ${voiceMode === 'tts' ? 'active' : ''}" data-action="tts" data-id="${g.id}">🔊 자동읽기</button>
-        <button class="voice-btn ${voiceMode === 'record' ? 'active' : ''}" data-action="record" data-id="${g.id}">🎙️ ${hasRecording ? '녹음완료' : '내 목소리'}</button>
+        ${voiceMode === 'tts' ? `
+        <select class="voice-gender-select" data-action="gender" data-id="${g.id}">
+          <option value="female" ${gender === 'female' ? 'selected' : ''}>여성 목소리</option>
+          <option value="male" ${gender === 'male' ? 'selected' : ''}>남성 목소리</option>
+        </select>` : ''}
+        <button class="voice-btn ${voiceMode === 'record' ? 'active' : ''}" data-action="record" data-id="${g.id}">🎙️ ${hasRecording ? '재녹음' : '내 목소리'}</button>
         <button class="voice-btn" data-action="off" data-id="${g.id}" style="${voiceMode === 'none' ? 'display:none' : ''}">🔇 끄기</button>
         <span class="voice-status" id="voiceStatus-${g.id}"></span>
+      </div>
+      <div class="preview-bar ${isPendingPreview ? 'visible' : ''}" id="previewBar-${g.id}">
+        <button class="preview-btn" data-action="preview-play" data-id="${g.id}">▶️ 들어보기</button>
+        <button class="preview-btn" data-action="preview-save" data-id="${g.id}">✅ 저장</button>
+        <button class="preview-btn retry" data-action="preview-retry" data-id="${g.id}">🔄 다시녹음</button>
       </div>
     `;
     gestureList.appendChild(row);
@@ -587,29 +634,50 @@ document.getElementById('presetSelect').addEventListener('change', (e) => {
 // ── 음성 설정 (TTS / 녹음) ──
 let mediaRecorder = null;
 let recordedChunks = [];
-let recordingTargetId = null;
 
 gestureList.addEventListener('click', async (e) => {
-  const btn = e.target.closest('.voice-btn');
+  const btn = e.target.closest('.voice-btn, .preview-btn');
   if (!btn) return;
   const action = btn.dataset.action;
   const id = btn.dataset.id;
 
   if (action === 'tts') {
-    voiceSettings[id] = { mode: 'tts', audioData: voiceSettings[id]?.audioData || null };
+    voiceSettings[id] = { ...voiceSettings[id], mode: 'tts', gender: voiceSettings[id]?.gender || 'female' };
     saveVoiceSettings();
     renderGestureInputs();
   } else if (action === 'off') {
-    voiceSettings[id] = { mode: 'none', audioData: voiceSettings[id]?.audioData || null };
+    voiceSettings[id] = { ...voiceSettings[id], mode: 'none' };
     saveVoiceSettings();
     renderGestureInputs();
   } else if (action === 'record') {
     if (mediaRecorder && mediaRecorder.state === 'recording') {
-      // 이미 녹음 중 → 중지
       mediaRecorder.stop();
       return;
     }
     await startRecording(id);
+  } else if (action === 'preview-play') {
+    if (pendingPreview && pendingPreview.id === id) {
+      const audio = new Audio(pendingPreview.audioData);
+      audio.play().catch(() => {});
+    }
+  } else if (action === 'preview-save') {
+    if (pendingPreview && pendingPreview.id === id) {
+      voiceSettings[id] = { ...voiceSettings[id], mode: 'record', audioData: pendingPreview.audioData };
+      saveVoiceSettings();
+      pendingPreview = null;
+      renderGestureInputs();
+    }
+  } else if (action === 'preview-retry') {
+    pendingPreview = null;
+    await startRecording(id);
+  }
+});
+
+gestureList.addEventListener('change', (e) => {
+  if (e.target.dataset.action === 'gender') {
+    const id = e.target.dataset.id;
+    voiceSettings[id] = { ...voiceSettings[id], gender: e.target.value };
+    saveVoiceSettings();
   }
 });
 
@@ -617,7 +685,6 @@ async function startRecording(id) {
   try {
     const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
     recordedChunks = [];
-    recordingTargetId = id;
     mediaRecorder = new MediaRecorder(micStream);
 
     mediaRecorder.ondataavailable = (ev) => {
@@ -629,8 +696,8 @@ async function startRecording(id) {
       const blob = new Blob(recordedChunks, { type: 'audio/webm' });
       const reader = new FileReader();
       reader.onloadend = () => {
-        voiceSettings[id] = { mode: 'record', audioData: reader.result };
-        saveVoiceSettings();
+        // 바로 저장하지 않고 미리듣기 상태로 전환
+        pendingPreview = { id, audioData: reader.result };
         renderGestureInputs();
       };
       reader.readAsDataURL(blob);
@@ -657,6 +724,23 @@ async function startRecording(id) {
   }
 }
 
+// 한국어 TTS 음성을 성별로 분류해서 캐시
+let koreanVoicesCache = null;
+function getKoreanVoicesByGender() {
+  if (koreanVoicesCache) return koreanVoicesCache;
+  const voices = window.speechSynthesis.getVoices().filter(v => v.lang === 'ko-KR' || v.lang === 'ko_KR' || v.lang.startsWith('ko'));
+  // 음성 이름에 흔히 포함되는 성별 키워드로 분류 (플랫폼마다 이름 패턴이 다름)
+  const femaleHints = ['female', 'yuna', 'sora', 'female1', 'woman', '여성'];
+  const maleHints = ['male', 'jinho', 'man', 'male1', '남성'];
+  const female = voices.filter(v => femaleHints.some(h => v.name.toLowerCase().includes(h)));
+  const male = voices.filter(v => maleHints.some(h => v.name.toLowerCase().includes(h)));
+  koreanVoicesCache = { all: voices, female, male };
+  return koreanVoicesCache;
+}
+if ('speechSynthesis' in window) {
+  window.speechSynthesis.onvoiceschanged = () => { koreanVoicesCache = null; };
+}
+
 function playVoiceForGesture(id, text) {
   const setting = voiceSettings[id];
   if (!setting || setting.mode === 'none') return;
@@ -670,6 +754,16 @@ function playVoiceForGesture(id, text) {
       const utter = new SpeechSynthesisUtterance(text);
       utter.lang = 'ko-KR';
       utter.rate = 1.0;
+
+      const gender = setting.gender || 'female';
+      const { all, female, male } = getKoreanVoicesByGender();
+      let pickFrom = gender === 'male' ? male : female;
+      // 매칭되는 성별 음성이 없으면, 전체 한국어 음성 중 순서로 대체 추정 (보통 0번=여성, 1번=남성인 경우가 많음)
+      if (pickFrom.length === 0 && all.length > 0) {
+        pickFrom = gender === 'male' ? [all[1] || all[0]] : [all[0]];
+      }
+      if (pickFrom[0]) utter.voice = pickFrom[0];
+
       window.speechSynthesis.speak(utter);
     }
   }
